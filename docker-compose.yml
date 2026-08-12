@@ -1,0 +1,43 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.7.1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+  kafka:
+    image: confluentinc/cp-kafka:7.7.1
+    depends_on: [zookeeper]
+    ports: ["29092:29092"]
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: retail_analytics
+      POSTGRES_USER: retail
+      POSTGRES_PASSWORD: retail
+    ports: ["5432:5432"]
+    volumes: ["./sql/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro"]
+  producer:
+    image: python:3.12-slim
+    working_dir: /app
+    volumes: [".:/app"]
+    command: sh -c "pip install kafka-python==2.0.2 && python -m src.producer --events 1000 --rate 100"
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on: [kafka]
+  spark:
+    image: bitnami/spark:3.5
+    working_dir: /app
+    volumes: [".:/app"]
+    command: ["spark-submit", "--packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3,org.postgresql:postgresql:42.7.4", "src/stream_job.py"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: retail_analytics
+      POSTGRES_USER: retail
+      POSTGRES_PASSWORD: retail
+    depends_on: [kafka, postgres]
